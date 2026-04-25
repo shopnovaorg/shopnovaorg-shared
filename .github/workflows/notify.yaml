@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       service-name:
-        description: "Name of the service that failed (e.g. auth-service)"
+        description: "Name of the service (e.g. auth-service)"
         required: true
         type: string
       branch:
@@ -19,6 +19,36 @@ on:
         description: "Repository full name (org/repo)"
         required: true
         type: string
+      git-tag:
+        description: "The image tag generated (if build ran)"
+        required: false
+        type: string
+        default: "N/A"
+      sonarqube-result:
+        description: "Result of the SonarQube + Snyk validate job"
+        required: false
+        type: string
+        default: "skipped"
+      snyk-result:
+        description: "Result of the Snyk scan job"
+        required: false
+        type: string
+        default: "skipped"
+      build-result:
+        description: "Result of the build job"
+        required: false
+        type: string
+        default: "skipped"
+      trivy-result:
+        description: "Result of the Trivy scan job"
+        required: false
+        type: string
+        default: "skipped"
+      push-result:
+        description: "Result of the push-to-DockerHub job"
+        required: false
+        type: string
+        default: "skipped"
     secrets:
       SENDGRID_API_KEY:
         required: true
@@ -31,32 +61,71 @@ jobs:
   notify:
     name: Send Failure Email
     runs-on: ubuntu-latest
+    if: |
+      inputs.sonarqube-result == 'failure' ||
+      inputs.snyk-result      == 'failure' ||
+      inputs.build-result     == 'failure' ||
+      inputs.trivy-result     == 'failure' ||
+      inputs.push-result      == 'failure'
 
     steps:
-      - name: Send failure notification via SendGrid
+      # ── Build failure summary table ───────────────────────────────────────────
+      - name: Build failure summary
+        id: summary
         run: |
-          RUN_URL="https://github.com/${{ inputs.repository }}/actions/runs/${{ inputs.run-id }}"
+          FAILED_JOBS=""
 
-          curl -s --request POST \
-            --url https://api.sendgrid.com/v3/mail/send \
-            --header "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
-            --header "Content-Type: application/json" \
-            --data @- <<EOF
-          {
-            "personalizations": [
-              {
-                "to": [{ "email": "${{ secrets.NOTIFY_EMAIL_TO }}" }]
-              }
-            ],
-            "from": { "email": "${{ secrets.NOTIFY_EMAIL_FROM }}" },
-            "subject": "❌ CI Failed — ${{ inputs.service-name }} [${{ inputs.branch }}]",
-            "content": [
-              {
-                "type": "text/html",
-                "value": "<h2 style='color:#d73a49;'>🚨 CI Pipeline Failure</h2><table style='border-collapse:collapse;font-family:monospace;'><tr><td style='padding:4px 12px;font-weight:bold;'>Service</td><td style='padding:4px 12px;'>${{ inputs.service-name }}</td></tr><tr><td style='padding:4px 12px;font-weight:bold;'>Branch</td><td style='padding:4px 12px;'>${{ inputs.branch }}</td></tr><tr><td style='padding:4px 12px;font-weight:bold;'>Run ID</td><td style='padding:4px 12px;'>${{ inputs.run-id }}</td></tr><tr><td style='padding:4px 12px;font-weight:bold;'>Link</td><td style='padding:4px 12px;'><a href='${RUN_URL}'>View failed run →</a></td></tr></table>"
-              }
-            ]
-          }
-          EOF
+          if [[ "${{ inputs.sonarqube-result }}" == "failure" ]]; then
+            FAILED_JOBS="${FAILED_JOBS}| Validate (Sonar + Snyk) | ❌ failure |\n"
+          fi
+          if [[ "${{ inputs.snyk-result }}" == "failure" ]]; then
+            FAILED_JOBS="${FAILED_JOBS}| Snyk Scan | ❌ failure |\n"
+          fi
+          if [[ "${{ inputs.build-result }}" == "failure" ]]; then
+            FAILED_JOBS="${FAILED_JOBS}| Build Image | ❌ failure |\n"
+          fi
+          if [[ "${{ inputs.trivy-result }}" == "failure" ]]; then
+            FAILED_JOBS="${FAILED_JOBS}| Trivy Image Scan | ❌ failure |\n"
+          fi
+          if [[ "${{ inputs.push-result }}" == "failure" ]]; then
+            FAILED_JOBS="${FAILED_JOBS}| Push to DockerHub | ❌ failure |\n"
+          fi
 
-          echo "✅ Failure notification sent for ${{ inputs.service-name }} on ${{ inputs.branch }}"
+          echo "failed_jobs=${FAILED_JOBS}" >> "$GITHUB_OUTPUT"
+
+      # ── Send email via licenseware action ─────────────────────────────────────
+      - name: Send failure notification
+        uses: licenseware/send-email-notification@v1
+        with:
+          api-key: ${{ secrets.SENDGRID_API_KEY }}
+          subject: "CI FAILED — ${{ inputs.service-name }} (${{ inputs.branch }})"
+          from-email: ${{ secrets.NOTIFY_EMAIL_FROM }}
+          to-email: ${{ secrets.NOTIFY_EMAIL_TO }}
+          markdown-body: |
+            ## 🚨 CI Pipeline Failure
+
+            ### Details
+
+            | Field      | Value |
+            |------------|-------|
+            | **Service** | ${{ inputs.service-name }} |
+            | **Branch**  | ${{ inputs.branch }} |
+            | **Tag**     | ${{ inputs.git-tag }} |
+            | **Run ID**  | ${{ inputs.run-id }} |
+            | **Link**    | [View failed run →](https://github.com/${{ inputs.repository }}/actions/runs/${{ inputs.run-id }}) |
+
+            ### ❌ Failed Jobs
+
+            | Job | Result |
+            |-----|--------|
+            ${{ steps.summary.outputs.failed_jobs }}
+
+            ### All Job Results
+
+            | Job | Result |
+            |-----|--------|
+            | Validate (Sonar + Snyk) | ${{ inputs.sonarqube-result }} |
+            | Snyk Scan               | ${{ inputs.snyk-result }} |
+            | Build Image             | ${{ inputs.build-result }} |
+            | Trivy Image Scan        | ${{ inputs.trivy-result }} |
+            | Push to DockerHub       | ${{ inputs.push-result }} |
