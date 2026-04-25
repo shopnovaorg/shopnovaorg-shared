@@ -1,0 +1,62 @@
+name: Failure Notification
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Name of the service that failed (e.g. auth-service)"
+        required: true
+        type: string
+      branch:
+        description: "The branch where the failure occurred"
+        required: true
+        type: string
+      run-id:
+        description: "GitHub Actions run ID for the direct link"
+        required: true
+        type: string
+      repository:
+        description: "Repository full name (org/repo)"
+        required: true
+        type: string
+    secrets:
+      SENDGRID_API_KEY:
+        required: true
+      NOTIFY_EMAIL_TO:
+        required: true
+      NOTIFY_EMAIL_FROM:
+        required: true
+
+jobs:
+  notify:
+    name: Send Failure Email
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send failure notification via SendGrid
+        run: |
+          RUN_URL="https://github.com/${{ inputs.repository }}/actions/runs/${{ inputs.run-id }}"
+
+          curl -s --request POST \
+            --url https://api.sendgrid.com/v3/mail/send \
+            --header "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
+            --header "Content-Type: application/json" \
+            --data @- <<EOF
+          {
+            "personalizations": [
+              {
+                "to": [{ "email": "${{ secrets.NOTIFY_EMAIL_TO }}" }]
+              }
+            ],
+            "from": { "email": "${{ secrets.NOTIFY_EMAIL_FROM }}" },
+            "subject": "❌ CI Failed — ${{ inputs.service-name }} [${{ inputs.branch }}]",
+            "content": [
+              {
+                "type": "text/html",
+                "value": "<h2 style='color:#d73a49;'>🚨 CI Pipeline Failure</h2><table style='border-collapse:collapse;font-family:monospace;'><tr><td style='padding:4px 12px;font-weight:bold;'>Service</td><td style='padding:4px 12px;'>${{ inputs.service-name }}</td></tr><tr><td style='padding:4px 12px;font-weight:bold;'>Branch</td><td style='padding:4px 12px;'>${{ inputs.branch }}</td></tr><tr><td style='padding:4px 12px;font-weight:bold;'>Run ID</td><td style='padding:4px 12px;'>${{ inputs.run-id }}</td></tr><tr><td style='padding:4px 12px;font-weight:bold;'>Link</td><td style='padding:4px 12px;'><a href='${RUN_URL}'>View failed run →</a></td></tr></table>"
+              }
+            ]
+          }
+          EOF
+
+          echo "✅ Failure notification sent for ${{ inputs.service-name }} on ${{ inputs.branch }}"
