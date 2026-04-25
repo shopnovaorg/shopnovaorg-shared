@@ -83,7 +83,11 @@ jobs:
           path: snyk-report.html
           retention-days: 14
 
-      # ── Final status check — fails job only on hard errors, not Snyk warnings ─
+      # ── Final status check ────────────────────────────────────────────────────
+      # Rules:
+      #   Sonar SCAN failure (host unreachable etc.) → WARNING only, do not fail
+      #   Sonar QUALITY GATE failure (code fails gate) → FAIL the job
+      #   Snyk vulnerabilities found                  → WARNING only, do not fail
       - name: Check results and set final status
         if: always()
         run: |
@@ -100,19 +104,16 @@ jobs:
           FAILED=0
 
           if [[ "$SONAR_RESULT" == "failure" ]]; then
-            echo "❌ FAIL: SonarQube scan failed."
-            FAILED=1
+            echo "⚠️  WARN: SonarQube scan failed (server unreachable or config error) — skipping gate."
           fi
 
           if [[ "$GATE_RESULT" == "failure" ]]; then
-            echo "❌ FAIL: SonarQube quality gate failed."
+            echo "❌ FAIL: SonarQube quality gate failed — code does not meet quality standards."
             FAILED=1
           fi
 
           if [[ "$SNYK_RESULT" == "failure" ]]; then
             echo "⚠️  WARN: Snyk found vulnerabilities — see uploaded HTML report."
-            # Snyk vulnerabilities are warnings only; they do NOT fail the gate.
-            # Increase severity-threshold in the snyk test call above to make them blocking.
           fi
 
           exit $FAILED

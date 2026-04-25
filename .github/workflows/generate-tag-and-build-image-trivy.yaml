@@ -111,23 +111,56 @@ jobs:
         run: |
           docker save \
             ${{ inputs.image-name }}:${{ steps.set-tag.outputs.image-tag }} \
-            -o image-${{ inputs.service-name }}.tar
+            -o /tmp/image-${{ inputs.service-name }}.tar
 
       - name: Upload Docker image artifact
         if: steps.check-tag.outputs.tag-exists == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: docker-image-${{ inputs.service-name }}
-          path: image-${{ inputs.service-name }}.tar
+          path: /tmp/image-${{ inputs.service-name }}.tar
           retention-days: 1
 
-      # ── Trivy Scan (PR only) ──────────────────────────────────────────────────
-      - name: Run Trivy image scan
-        if: inputs.run-trivy == true && steps.check-tag.outputs.tag-exists == 'false'
-        uses: aquasecurity/trivy-action@v0.30.0
+
+# ── Trivy Scan ────────────────────────────────────────────────────────────────────────
+  trivy:
+    name: Trivy Image Scan
+    needs: [build]
+    if: |
+      always() &&
+      inputs.run-trivy == true &&
+      needs.build.result == 'success' &&
+      needs.build.outputs.tag-exists == 'false'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
         with:
-          input: image-${{ inputs.service-name }}.tar
+          name: docker-image-${{ inputs.service-name }}
+          path: /tmp
+
+      - name: Load Docker image
+        run: |
+          docker load -i /tmp/image-${{ inputs.service-name }}.tar
+          echo "✅ Image loaded for Trivy scan"
+
+      - name: Run Trivy image scan
+        id: trivy-scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          input: /tmp/image-${{ inputs.service-name }}.tar
           format: table
           exit-code: '1'
           severity: CRITICAL
           ignore-unfixed: true
+
+      - name: Check Trivy result
+        if: always()
+        run: |
+          if [[ "${{ steps.trivy-scan.outcome }}" == "failure" ]]; then
+            echo "❌ FAIL: Trivy found CRITICAL vulnerabilities in the image."
+            exit 1
+          fi
+          echo "✅ Trivy scan passed — no CRITICAL vulnerabilities found."
