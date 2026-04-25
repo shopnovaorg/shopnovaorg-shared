@@ -44,7 +44,7 @@ jobs:
       # ── SonarQube ─────────────────────────────────────────────────────────────
       - name: SonarQube Scan
         id: sonar-scan
-        uses: sonarsource/sonarqube-scan-action@v4
+        uses: sonarsource/sonarqube-scan-action@v6
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
