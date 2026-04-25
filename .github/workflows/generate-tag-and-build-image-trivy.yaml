@@ -124,7 +124,7 @@ jobs:
       # ── Trivy Scan (PR only) ──────────────────────────────────────────────────
       - name: Run Trivy image scan
         if: inputs.run-trivy == true && steps.check-tag.outputs.tag-exists == 'false'
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           input: image-${{ inputs.service-name }}.tar
           format: table
