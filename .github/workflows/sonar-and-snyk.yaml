@@ -29,13 +29,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # Full history required for SonarQube blame analysis
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -43,7 +44,7 @@ jobs:
       # ── SonarQube ─────────────────────────────────────────────────────────────
       - name: SonarQube Scan
         id: sonar-scan
-        uses: sonarsource/sonarqube-scan-action@master
+        uses: sonarsource/sonarqube-scan-action@v4
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -52,16 +53,16 @@ jobs:
       - name: SonarQube Quality Gate Check
         if: steps.sonar-scan.outcome == 'success'
         id: sonar-gate
-        uses: sonarsource/sonarqube-quality-gate-action@master
+        uses: sonarsource/sonarqube-quality-gate-action@v1
         continue-on-error: true
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # ── Snyk (runs independently of SonarQube) ────────────────────────────────
+      # ── Snyk (runs independently of SonarQube result) ────────────────────────
       - name: Install Snyk CLI
-        run: npm install -g snyk
+        run: npm install -g snyk snyk-to-html
 
       - name: Run Snyk dependency scan
         id: snyk-scan
@@ -71,19 +72,19 @@ jobs:
         continue-on-error: true
 
       - name: Generate Snyk HTML report
-        if: always() && steps.snyk-scan.outcome != 'skipped'
-        run: npx snyk-to-html -i snyk-results.json -o snyk-report.html
+        if: always() && steps.snyk-scan.outcome != 'skipped' && hashFiles('snyk-results.json') != ''
+        run: snyk-to-html -i snyk-results.json -o snyk-report.html
 
       - name: Upload Snyk HTML report as artifact
-        if: always() && steps.snyk-scan.outcome != 'skipped'
+        if: always() && steps.snyk-scan.outcome != 'skipped' && hashFiles('snyk-results.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: snyk-report-${{ inputs.service-name }}
           path: snyk-report.html
           retention-days: 14
 
-      # ── Final status check ────────────────────────────────────────────────────
-      - name: Check results
+      # ── Final status check — fails job only on hard errors, not Snyk warnings ─
+      - name: Check results and set final status
         if: always()
         run: |
           echo "=== CI Validation Summary ==="
@@ -99,19 +100,19 @@ jobs:
           FAILED=0
 
           if [[ "$SONAR_RESULT" == "failure" ]]; then
-            echo "FAIL: SonarQube scan failed."
+            echo "❌ FAIL: SonarQube scan failed."
             FAILED=1
           fi
 
           if [[ "$GATE_RESULT" == "failure" ]]; then
-            echo "FAIL: SonarQube quality gate failed."
+            echo "❌ FAIL: SonarQube quality gate failed."
             FAILED=1
           fi
 
           if [[ "$SNYK_RESULT" == "failure" ]]; then
-            echo "WARN: Snyk found vulnerabilities. Check the uploaded HTML report."
-            # Not failing the build for Snyk warnings — only high/critical block
-            # Snyk exit code 1 = vulnerabilities found, but we allow it as a warning
+            echo "⚠️  WARN: Snyk found vulnerabilities — see uploaded HTML report."
+            # Snyk vulnerabilities are warnings only; they do NOT fail the gate.
+            # Increase severity-threshold in the snyk test call above to make them blocking.
           fi
 
           exit $FAILED

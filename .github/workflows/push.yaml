@@ -19,6 +19,11 @@ on:
         description: "True when pushing to main branch — enables latest tag and git tag creation"
         required: true
         type: boolean
+      tag-exists:
+        description: "Set to 'true' if the build job skipped because the tag already exists on DockerHub"
+        required: false
+        type: string
+        default: "false"
     secrets:
       DOCKERHUB_USERNAME:
         required: true
@@ -36,32 +41,43 @@ jobs:
         with:
           fetch-depth: 0
 
+      # ── Skip entire push if image already exists ──────────────────────────────
+      - name: Skip push — image tag already exists
+        if: inputs.tag-exists == 'true'
+        run: |
+          echo "⚠️ Image tag '${{ inputs.image-tag }}' already exists on DockerHub."
+          echo "Skipping download, load, and push steps."
+
       # ── Load image from artifact ───────────────────────────────────────────────
       - name: Download Docker image artifact
+        if: inputs.tag-exists != 'true'
         uses: actions/download-artifact@v4
         with:
           name: docker-image-${{ inputs.service-name }}
 
       - name: Load Docker image
+        if: inputs.tag-exists != 'true'
         run: |
           docker load -i image-${{ inputs.service-name }}.tar
           echo "✅ Image loaded: ${{ inputs.image-name }}:${{ inputs.image-tag }}"
 
       # ── DockerHub Login & Push ────────────────────────────────────────────────
       - name: Login to DockerHub
+        if: inputs.tag-exists != 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Push versioned image tag
+        if: inputs.tag-exists != 'true'
         run: |
           docker push ${{ inputs.image-name }}:${{ inputs.image-tag }}
           echo "✅ Pushed: ${{ inputs.image-name }}:${{ inputs.image-tag }}"
 
       # main branch only — push :latest
       - name: Tag and push as latest
-        if: inputs.is-main == true
+        if: inputs.tag-exists != 'true' && inputs.is-main == true
         run: |
           docker tag \
             ${{ inputs.image-name }}:${{ inputs.image-tag }} \
@@ -71,7 +87,7 @@ jobs:
 
       # main branch only — create git tag in the service repo
       - name: Create and push git tag
-        if: inputs.is-main == true
+        if: inputs.tag-exists != 'true' && inputs.is-main == true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
