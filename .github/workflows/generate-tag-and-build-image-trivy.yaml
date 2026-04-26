@@ -41,41 +41,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history so git tag --list works correctly
+          fetch-depth: 0
 
       # ── Tag Generation ────────────────────────────────────────────────────────
+      - name: Calculate semantic version (main only)
+        id: semver
+        if: github.ref_name == 'main'
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ github.token }}
+          tag_prefix: "${{ inputs.service-name }}-v"
+          dry_run: true
+          default_bump: patch
+
       - name: Generate image tag
         id: set-tag
         run: |
-          BRANCH="${{ github.ref_name }}"
-          SERVICE="${{ inputs.service-name }}"
-
-          if [[ "$BRANCH" == "main" ]]; then
-            # Find the latest existing semantic version tag for this service
-            LATEST_TAG=$(git tag --list "${SERVICE}-v*" --sort=-v:refname | head -n 1)
-
-            if [[ -z "$LATEST_TAG" ]]; then
-              # First ever release
-              NEW_VERSION="v1.0.0"
-            else
-              # Increment patch version
-              VERSION="${LATEST_TAG#${SERVICE}-v}"
-              MAJOR=$(echo "$VERSION" | cut -d. -f1)
-              MINOR=$(echo "$VERSION" | cut -d. -f2)
-              PATCH=$(echo "$VERSION" | cut -d. -f3)
-              PATCH=$((PATCH + 1))
-              NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
-            fi
-
-            IMAGE_TAG="${SERVICE}-${NEW_VERSION}"
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            IMAGE_TAG="${{ steps.semver.outputs.new_tag }}"
+            echo "✅ Generated semver tag: $IMAGE_TAG"
           else
-            # dev branch / PR head: branch-name + short SHA
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
             IMAGE_TAG="dev-${SHORT_SHA}"
+            echo "✅ Generated dev tag: $IMAGE_TAG"
           fi
-
           echo "image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "✅ Generated tag: ${IMAGE_TAG}"
 
       # ── DockerHub Tag Existence Check ─────────────────────────────────────────
       - name: Check if image tag already exists on DockerHub
@@ -121,8 +111,7 @@ jobs:
           path: /tmp/image-${{ inputs.service-name }}.tar
           retention-days: 1
 
-
-# ── Trivy Scan ────────────────────────────────────────────────────────────────────────
+# ── Trivy Scan ────────────────────────────────────────────────────────────────
   trivy:
     name: Trivy Image Scan
     needs: [build]
