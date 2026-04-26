@@ -1,0 +1,69 @@
+name: Helm Values Updater
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Short service identifier (e.g. auth-service)"
+        required: true
+        type: string
+      image-tag:
+        description: "New image tag to write into values file"
+        required: true
+        type: string
+      helm-values-path:
+        description: "Relative path to the values file inside shopnovaorg-helm repo"
+        required: true
+        type: string
+      target-branch:
+        description: "Branch in shopnovaorg-helm to check out and push to (main or dev)"
+        required: false
+        type: string
+        default: main
+    secrets:
+      HELM_CHARTS_TOKEN:
+        description: "PAT with contents:write on shopnovaorg/shopnovaorg-helm"
+        required: true
+
+jobs:
+  update-helm-values:
+    name: Update Helm Values
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout shopnovaorg-helm
+        uses: actions/checkout@v4
+        with:
+          repository: shopnovaorg/shopnovaorg-helm
+          token: ${{ secrets.HELM_CHARTS_TOKEN }}
+          ref: ${{ inputs.target-branch }}
+
+      - name: Update image tag in values file
+        run: |
+          FILE="${{ inputs.helm-values-path }}"
+
+          if [ ! -f "$FILE" ]; then
+            echo "❌ ERROR: $FILE not found in shopnovaorg-helm repo (branch: ${{ inputs.target-branch }})"
+            exit 1
+          fi
+
+          echo "📄 Before:"
+          grep "tag:" "$FILE" || true
+
+          # Update the `tag:` line (indented) under image:
+          sed -i "s|^\(\s*tag:\s*\).*|\1${{ inputs.image-tag }}|" "$FILE"
+
+          echo "✅ After:"
+          grep "tag:" "$FILE"
+
+      - name: Commit and push
+        run: |
+          git config user.name  "github-actions"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "${{ inputs.helm-values-path }}"
+          git diff --cached --quiet && echo "⚠️  No changes — tag already up to date" && exit 0
+
+          git commit -m "chore(${{ inputs.service-name }}): update image tag to ${{ inputs.image-tag }}"
+          git push origin ${{ inputs.target-branch }}
+          echo "✅ Pushed helm values update to ${{ inputs.target-branch }}"
