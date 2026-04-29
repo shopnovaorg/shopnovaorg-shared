@@ -43,7 +43,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ── Tag Generation ────────────────────────────────────────────────────────
       - name: Calculate semantic version (main only)
         id: semver
         if: github.ref_name == 'main'
@@ -67,7 +66,6 @@ jobs:
           fi
           echo "image-tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
 
-      # ── DockerHub Tag Existence Check ─────────────────────────────────────────
       - name: Check if image tag already exists on DockerHub
         id: check-tag
         run: |
@@ -84,7 +82,6 @@ jobs:
             echo "tag-exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # ── Docker Build ──────────────────────────────────────────────────────────
       - name: Set up Docker Buildx
         if: steps.check-tag.outputs.tag-exists == 'false'
         uses: docker/setup-buildx-action@v3
@@ -111,7 +108,6 @@ jobs:
           path: /tmp/image-${{ inputs.service-name }}.tar
           retention-days: 1
 
-# ── Trivy Scan ────────────────────────────────────────────────────────────────
   trivy:
     name: Trivy Image Scan
     needs: [build]
