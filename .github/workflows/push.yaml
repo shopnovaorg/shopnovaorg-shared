@@ -41,14 +41,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ── Skip entire push if image already exists ──────────────────────────────
       - name: Skip push — image tag already exists
         if: inputs.tag-exists == 'true'
         run: |
           echo "⚠️ Image tag '${{ inputs.image-tag }}' already exists on DockerHub."
           echo "Skipping download, load, and push steps."
 
-      # ── Load image from artifact ───────────────────────────────────────────────
       - name: Download Docker image artifact
         if: inputs.tag-exists != 'true'
         uses: actions/download-artifact@v4
@@ -62,7 +60,6 @@ jobs:
           docker load -i /tmp/image-${{ inputs.service-name }}.tar
           echo "✅ Image loaded: ${{ inputs.image-name }}:${{ inputs.image-tag }}"
 
-      # ── DockerHub Login & Push ────────────────────────────────────────────────
       - name: Login to DockerHub
         if: inputs.tag-exists != 'true'
         uses: docker/login-action@v3
@@ -78,7 +75,6 @@ jobs:
           docker push ${{ inputs.image-name }}:${{ inputs.image-tag }}
           echo "✅ Pushed: ${{ inputs.image-name }}:${{ inputs.image-tag }}"
 
-      # main branch only — push :latest
       - name: Tag and push as latest
         if: inputs.tag-exists != 'true' && inputs.is-main == true
         run: |
@@ -88,7 +84,6 @@ jobs:
           docker push ${{ inputs.image-name }}:latest
           echo "✅ Pushed: ${{ inputs.image-name }}:latest"
 
-      # main branch only — create git tag in the service repo
       - name: Create and push git tag
         if: inputs.tag-exists != 'true' && inputs.is-main == true
         env:
