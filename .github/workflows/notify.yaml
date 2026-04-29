@@ -69,7 +69,6 @@ jobs:
       inputs.push-result      == 'failure'
 
     steps:
-      # ── Build failure summary table ───────────────────────────────────────────
       - name: Build failure summary
         id: summary
         run: |
@@ -93,7 +92,6 @@ jobs:
 
           echo "failed_jobs=${FAILED_JOBS}" >> "$GITHUB_OUTPUT"
 
-      # ── Send email via licenseware action ─────────────────────────────────────
       - name: Send failure notification
         uses: licenseware/send-email-notification@v1
         with:
