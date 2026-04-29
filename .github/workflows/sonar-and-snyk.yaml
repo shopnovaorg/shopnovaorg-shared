@@ -29,7 +29,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history required for SonarQube blame analysis
+          fetch-depth: 0  
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -41,7 +41,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ── SonarQube ─────────────────────────────────────────────────────────────
       - name: SonarQube Scan
         id: sonar-scan
         uses: sonarsource/sonarqube-scan-action@v6
@@ -60,7 +59,6 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # ── Snyk (runs independently of SonarQube result) ────────────────────────
       - name: Install Snyk CLI
         run: npm install -g snyk snyk-to-html
 
@@ -83,11 +81,7 @@ jobs:
           path: snyk-report.html
           retention-days: 14
 
-      # ── Final status check ────────────────────────────────────────────────────
-      # Rules:
-      #   Sonar SCAN failure (host unreachable etc.) → WARNING only, do not fail
-      #   Sonar QUALITY GATE failure (code fails gate) → FAIL the job
-      #   Snyk vulnerabilities found                  → WARNING only, do not fail
+
       - name: Check results and set final status
         if: always()
         run: |
